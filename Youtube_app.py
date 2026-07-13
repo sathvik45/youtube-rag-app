@@ -7,9 +7,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
-from dotenv import load_dotenv
-
-load_dotenv()
+HF_TOKEN = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
 
 st.set_page_config(page_title="YouTube AI Chat", page_icon="🎬", layout="wide")
 st.title("🎬 YouTube AI Chat")
@@ -26,10 +24,7 @@ def load_embedding_model():
 
 @st.cache_resource
 def load_llm():
-    llm = HuggingFaceEndpoint(
-        repo_id="MiniMaxAI/MiniMax-M2.5",
-        task="text-generation"
-    )
+    llm = HuggingFaceEndpoint( repo_id="MiniMaxAI/MiniMax-M2.5", task="text-generation", huggingfacehub_api_token = HF_TOKEN )
     return ChatHuggingFace(llm=llm)
 
 # Load models (shows spinner only on first load)
@@ -59,8 +54,10 @@ Answer:
 # ── Helper functions ──────────────────────────────────────────────────────────
 def get_transcript(video_id: str) -> str:
     api = YouTubeTranscriptApi()
-    transcript_list = api.fetch(video_id=video_id, languages=["en"])
-    return " ".join(chunk.text for chunk in transcript_list)
+    #transcript_list = api.fetch(video_id=video_id, languages=["en"])
+    transcript = api.fetch(video_id)
+    #return " ".join(chunk.text for chunk in transcript_list)
+    return " ".join(chunk.text for chunk in transcript)
 
 def format_context(docs) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
