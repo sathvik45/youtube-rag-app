@@ -2,13 +2,9 @@ import os
 from urllib.parse import urlparse, parse_qs
 
 import streamlit as st
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 
-from youtube_transcript_api import (
-    YouTubeTranscriptApi,
-    TranscriptsDisabled,
-    NoTranscriptFound,
-)
+import requests
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import (
@@ -26,12 +22,20 @@ from langchain_core.runnables import (
     RunnableLambda,
 )
 
-#load_dotenv()
 
 try:
     HF_TOKEN = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
+    SUPADATA_API_KEY = st.secrets["SUPADATA_API_KEY"]
+
 except Exception:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
     HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+    SUPADATA_API_KEY = os.getenv("SUPADATA_API_KEY")
+
+SUPADATA_URL = "https://api.supadata.ai/v1/transcript"
 
 st.set_page_config(
     page_title="YouTube AI Chat",
@@ -119,18 +123,43 @@ def extract_video_id(url_or_id: str):
 
     return url_or_id
 
-def get_transcript(video_id):
 
-    api = YouTubeTranscriptApi()
 
-    try:
-        transcript = api.fetch(video_id, languages=["en"])
+def get_transcript(video_url: str):
 
-    except Exception:
+    headers = {
+        "x-api-key": SUPADATA_API_KEY
+    }
 
-        transcript = api.fetch(video_id)
+    params = {
+        "url": video_url,
+        "text": "true",
+        "mode": "auto",
+        "lang": "en",
+    }
 
-    return " ".join(chunk.text for chunk in transcript)
+    response = requests.get(
+        SUPADATA_URL,
+        headers=headers,
+        params=params,
+        timeout=60,
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    # Immediate transcript
+    if "content" in data:
+        return data["content"]
+
+    # Job returned for longer videos
+    if "jobId" in data:
+        raise RuntimeError(
+            "Transcript is still processing. Please try again in a few seconds."
+        )
+
+    raise RuntimeError("Unexpected response from Supadata.")
 
 def format_context(docs):
 
@@ -143,7 +172,9 @@ def format_context(docs):
 @st.cache_resource(show_spinner=False)
 def build_vector_store(video_id: str):
 
-    transcript = get_transcript(video_id)
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    transcript = get_transcript(video_url)
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -264,18 +295,14 @@ with st.sidebar:
 
                     st.success("Video indexed successfully!")
 
-                except (
-                    TranscriptsDisabled,
-                    NoTranscriptFound,
-                ):
+                except requests.HTTPError as e:
+                    st.error(f"Supadata API returned an error: {e}")
 
-                    st.error(
-                        "No transcript available for this video."
-                    )
+                except requests.RequestException as e:
+                    st.error(f"Network error: {e}")
 
                 except Exception as e:
-
-                    st.error(str(e))
+                    st.error(f"Error: {e}")
 
     if st.session_state.video_loaded:
 
